@@ -23,11 +23,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await coordinator.async_start_realtime()
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    coordinator = hass.data[DOMAIN].get(entry.entry_id)
+    if coordinator is not None:
+        await coordinator.async_stop_realtime()
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)

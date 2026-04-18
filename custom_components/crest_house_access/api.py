@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from json import JSONDecodeError, loads
+from typing import Any, Awaitable, Callable, Dict, List
 from urllib.parse import urlparse
 
-from aiohttp import ClientError, ClientResponseError, ClientSession
+from aiohttp import ClientError, ClientResponseError, ClientSession, ClientTimeout
 
 from .const import COORDINATOR_TIMEOUT_SECONDS
 
@@ -69,3 +70,60 @@ class CrestHouseAccessApiClient:
             raise CrestHouseAccessCannotConnect
 
         return payload
+
+    async def async_stream_snapshots(
+        self,
+        on_snapshot: Callable[[Dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        """Listen for realtime snapshots over the event stream."""
+        try:
+            async with self._session.get(
+                f"{self._base_url}/api/v1/stream",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Accept": "text/event-stream",
+                },
+                ssl=self._verify_ssl,
+                timeout=ClientTimeout(total=None, sock_read=60),
+            ) as response:
+                if response.status == 401:
+                    raise CrestHouseAccessInvalidAuth
+
+                response.raise_for_status()
+
+                event_name = "message"
+                data_lines: List[str] = []
+
+                async for raw_line in response.content:
+                    line = raw_line.decode("utf-8").strip()
+
+                    if not line:
+                        if event_name == "snapshot" and data_lines:
+                            try:
+                                payload = loads("\n".join(data_lines))
+                            except JSONDecodeError as err:
+                                raise CrestHouseAccessCannotConnect from err
+
+                            if (
+                                isinstance(payload, dict)
+                                and payload.get("ok") is True
+                            ):
+                                await on_snapshot(payload)
+
+                        event_name = "message"
+                        data_lines = []
+                        continue
+
+                    if line.startswith(":"):
+                        continue
+                    if line.startswith("event:"):
+                        event_name = line[6:].strip()
+                        continue
+                    if line.startswith("data:"):
+                        data_lines.append(line[5:].lstrip())
+        except CrestHouseAccessInvalidAuth:
+            raise
+        except ClientResponseError as err:
+            raise CrestHouseAccessCannotConnect from err
+        except ClientError as err:
+            raise CrestHouseAccessCannotConnect from err
