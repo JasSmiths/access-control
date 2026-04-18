@@ -1,0 +1,10 @@
+{
+  "domain": "crest_house_access",
+  "name": "Crest House Access Control",
+  "version": "0.1.0",
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "codeowners": [],
+  "requirements": []
+}

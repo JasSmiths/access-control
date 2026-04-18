@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Crest House Access",
+        "description": "Connect Home Assistant to your Crest House Access Control System API.",
+        "data": {
+          "name": "Name",
+          "base_url": "Base URL",
+          "api_key": "API key",
+          "scan_interval": "Polling interval (minutes)",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the Crest House API.",
+      "invalid_auth": "The API key was rejected.",
+      "invalid_url": "Enter a valid http or https URL.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Crest House endpoint is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Crest House Access options",
+        "data": {
+          "scan_interval": "Polling interval (minutes)",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "on_site": {
+        "name": "On site"
+      },
+      "contractors": {
+        "name": "Contractors"
+      },
+      "flagged_today": {
+        "name": "Flagged today"
+      }
+    },
+    "binary_sensor": {
+      "site_occupied": {
+        "name": "Site occupied"
+      }
+    }
+  }
