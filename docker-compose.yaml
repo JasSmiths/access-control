@@ -1,0 +1,24 @@
+services:
+  crest-house-access:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: crest-house-access:latest
+    container_name: crest-house-access
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "${HOST_PORT:-4826}:3000"
+    volumes:
+      # Bind mounts only (no named volumes) per product requirement.
+      - ./data:/app/data
+      - ./migrations:/app/migrations:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

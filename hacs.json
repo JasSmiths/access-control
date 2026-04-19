@@ -1,0 +1,7 @@
+{
+  "name": "Crest House Access Control",
+  "content_in_root": false,
+  "domains": ["crest_house_access"],
+  "homeassistant": "2024.12.0",
+  "render_readme": true
+}
