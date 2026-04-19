@@ -19,6 +19,9 @@ from .const import (
     EVENT_ACCESS_EVENT,
     EVENT_PERSON_ARRIVED,
     EVENT_PERSON_LEFT,
+    HEARTBEAT_BUCKET_HIGH_MS,
+    HEARTBEAT_BUCKET_HIGH_WATERMARK_MS,
+    HEARTBEAT_BUCKET_LOW_MS,
     STREAM_RECONNECT_DELAY_SECONDS,
 )
 
@@ -33,6 +36,9 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
         self._stream_task: Optional[asyncio.Task] = None
         self._seen_event_ids: Set[int] = set()
         self._seeded_recent_events = False
+        self._heartbeat_display_ms: Optional[int] = None
+        self._heartbeat_display_source: Optional[str] = None
+        self._heartbeat_display_updated_at: Optional[str] = None
         self.api = CrestHouseAccessApiClient(
             async_get_clientsession(hass),
             entry.data["base_url"],
@@ -181,9 +187,18 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
         )
         measured_at = measured_at_dt.isoformat().replace("+00:00", "Z")
 
-        payload["heartbeat_ms"] = heartbeat_ms
-        payload["heartbeat_measured_at"] = measured_at
-        payload["heartbeat_source"] = source
+        display_ms = self._bucket_heartbeat_ms(heartbeat_ms)
+        if (
+            self._heartbeat_display_ms != display_ms
+            or self._heartbeat_display_source != source
+        ):
+            self._heartbeat_display_ms = display_ms
+            self._heartbeat_display_source = source
+            self._heartbeat_display_updated_at = measured_at
+
+        payload["heartbeat_ms"] = self._heartbeat_display_ms
+        payload["heartbeat_source"] = self._heartbeat_display_source
+        payload["heartbeat_updated_at"] = self._heartbeat_display_updated_at
 
         try:
             await self.api.async_post_heartbeat(
@@ -194,3 +209,12 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
             )
         except CrestHouseAccessApiError as err:
             _LOGGER.debug("Failed to report heartbeat: %s", err)
+
+    @staticmethod
+    def _bucket_heartbeat_ms(heartbeat_ms: int) -> int:
+        """Collapse precise heartbeat values into stable display buckets for HA."""
+        if heartbeat_ms < HEARTBEAT_BUCKET_HIGH_WATERMARK_MS:
+            bucket = HEARTBEAT_BUCKET_LOW_MS
+        else:
+            bucket = HEARTBEAT_BUCKET_HIGH_MS
+        return max(bucket, int(round(heartbeat_ms / bucket) * bucket))

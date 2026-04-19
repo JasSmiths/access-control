@@ -83,10 +83,8 @@ SENSORS: Tuple[CrestHouseAccessSensorDescription, ...] = (
         ),
         entity_category=EntityCategory.DIAGNOSTIC,
         attributes_fn=lambda data: {
-            "generated_at": data.get("generated_at"),
-            "heartbeat_measured_at": data.get("heartbeat_measured_at"),
             "heartbeat_source": data.get("heartbeat_source"),
-            "latest_gate_signal": data.get("latest_gate_signal"),
+            "heartbeat_updated_at": data.get("heartbeat_updated_at"),
         },
     ),
     CrestHouseAccessSensorDescription(
