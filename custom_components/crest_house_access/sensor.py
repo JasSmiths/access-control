@@ -13,7 +13,9 @@ from .const import DOMAIN
 from .entity import (
     CrestHouseAccessEntity,
     get_last_event_by_type,
+    get_off_site_names,
     get_on_site_names,
+    get_people,
 )
 
 
@@ -90,6 +92,8 @@ SENSORS: Tuple[CrestHouseAccessSensorDescription, ...] = (
             "generated_at": data.get("generated_at"),
             "names": get_on_site_names(data),
             "count": len(get_on_site_names(data)),
+            "off_site_names": get_off_site_names(data),
+            "people": get_people(data),
             "open_sessions": data.get("open_sessions", []),
         },
     ),
