@@ -1,31 +1,18 @@
 import {
   checkWebhookSecret,
-  isAutoEvent,
   normalisePlate,
   parseWebhookPayload,
 } from "@/lib/webhook";
-import { findActiveContractorByPlate, ingestEvent } from "@/lib/sessions";
+import { findActiveContractorByPlate } from "@/lib/sessions";
 import { getDb } from "@/lib/db";
 import { auditLog } from "@/lib/audit";
+import { resolveWebhookBurst } from "@/lib/webhook-bursts";
 
 export const dynamic = "force-dynamic";
 
 function buildWebhookIngestKey(source: string | undefined, eventId: string | undefined) {
   if (!eventId) return null;
   return `${source ?? "unknown"}:${eventId}`;
-}
-
-function findWebhookEventByIngestKey(ingestKey: string) {
-  return getDb()
-    .prepare("SELECT id FROM gate_events WHERE ingest_key = ? LIMIT 1")
-    .get(ingestKey) as { id: number } | undefined;
-}
-
-function isDuplicateWebhookError(error: unknown) {
-  return (
-    error instanceof Error &&
-    error.message.includes("UNIQUE constraint failed: gate_events.ingest_key")
-  );
 }
 
 export async function POST(request: Request) {
@@ -107,98 +94,110 @@ export async function POST(request: Request) {
   const payload = result.payload;
   const plate = normalisePlate(payload.plate);
   const ingestKey = buildWebhookIngestKey(payload.source, payload.event_id);
-  if (ingestKey) {
-    const existing = findWebhookEventByIngestKey(ingestKey);
-    if (existing) {
+  const contractor = findActiveContractorByPlate(plate);
+
+  try {
+    const resolved = await resolveWebhookBurst({
+      payload,
+      ingestKey,
+      contractor,
+    });
+
+    if (resolved.duplicateIngestKey) {
       auditLog({
         category: "webhook",
         action: "webhook.duplicate_ignored",
         message: "Duplicate webhook delivery ignored.",
         request,
+        contractorId: resolved.finalized.contractorId,
         plate,
         deviceId: payload.device_id ?? null,
         eventId: payload.event_id ?? null,
-        details: { gateEventId: existing.id, ingestKey },
+        details: {
+          burstId: resolved.burstId,
+          candidateId: resolved.duplicateCandidateId,
+          gateEventId: resolved.finalized.gateEventId,
+          ingestKey,
+        },
       });
-      return Response.json({ ok: true, duplicate: true, gate_event_id: existing.id });
+      return Response.json({
+        ok: true,
+        duplicate: true,
+        gate_event_id: resolved.finalized.gateEventId,
+      });
     }
-  }
 
-  const contractor = findActiveContractorByPlate(plate);
-  if (!contractor) {
-    // Silently ignore unknown/inactive plate per product decision.
+    if (resolved.finalized.status === "processed") {
+      auditLog({
+        category: "webhook",
+        action: "webhook.event_ingested",
+        message: contractor
+          ? `Webhook burst resolved for ${contractor.name}.`
+          : `Webhook burst resolved using known plate ${resolved.finalized.chosenPlate}.`,
+        request,
+        contractorId: resolved.finalized.contractorId,
+        plate,
+        deviceId: payload.device_id ?? null,
+        eventId: payload.event_id ?? null,
+        details: {
+          source: payload.source,
+          burstId: resolved.burstId,
+          gateEventId: resolved.finalized.gateEventId,
+          chosenPlate: resolved.finalized.chosenPlate,
+          eventType: resolved.finalized.eventType,
+        },
+      });
+      return Response.json(
+        {
+          ok: true,
+          burst_id: resolved.burstId,
+          gate_event_id: resolved.finalized.gateEventId,
+          event_type: resolved.finalized.eventType,
+          chosen_plate: resolved.finalized.chosenPlate,
+        },
+        { status: 200 }
+      );
+    }
+
+    if (!contractor) {
+      auditLog({
+        category: "webhook",
+        action: "webhook.plate_pending",
+        message: `Unknown plate ${plate} parked pending burst resolution.`,
+        request,
+        plate,
+        deviceId: payload.device_id ?? null,
+        eventId: payload.event_id ?? null,
+        details: {
+          source: payload.source,
+          burstId: resolved.burstId,
+        },
+      });
+      return Response.json(
+        {
+          ok: true,
+          pending: true,
+          burst_id: resolved.burstId,
+        },
+        { status: 202 }
+      );
+    }
+
     auditLog({
       category: "webhook",
-      action: "webhook.plate_ignored",
-      message: `Webhook event ignored: no active contractor for plate ${plate}.`,
+      action: "webhook.burst_ignored",
+      message: "Webhook burst ignored because no known plate was found in time.",
       request,
-      plate,
-      deviceId: payload.device_id ?? null,
-      eventId: payload.event_id ?? null,
-      details: { source: payload.source },
-    });
-    return new Response(null, { status: 204 });
-  }
-
-  // For UniFi-style payloads there is no explicit enter/exit.
-  // Resolve direction by checking whether this contractor has an open session:
-  //   open session exists → this is an exit
-  //   no open session     → this is an enter
-  let eventType = payload.event;
-  if (isAutoEvent(payload)) {
-    const openSession = getDb()
-      .prepare(
-        "SELECT id FROM sessions WHERE contractor_id = ? AND status = 'open' LIMIT 1"
-      )
-      .get(contractor.id);
-    eventType = openSession ? "exit" : "enter";
-  }
-
-  try {
-    const ingested = ingestEvent({
-      contractorId: contractor.id,
-      plateRaw: payload.plate,
-      eventType,
-      occurredAt: new Date(payload.timestamp).toISOString(),
-      source: payload.source,
-      ingestKey,
-      contractor,
-    });
-    auditLog({
-      category: "webhook",
-      action: "webhook.event_ingested",
-      message: `Webhook event ingested as ${eventType} for ${contractor.name}.`,
-      request,
-      contractorId: contractor.id,
       plate,
       deviceId: payload.device_id ?? null,
       eventId: payload.event_id ?? null,
       details: {
         source: payload.source,
-        emitted: ingested.emits.map((e) => e.name),
+        burstId: resolved.burstId,
       },
     });
+    return new Response(null, { status: 204 });
   } catch (err) {
-    if (ingestKey && isDuplicateWebhookError(err)) {
-      const existing = findWebhookEventByIngestKey(ingestKey);
-      auditLog({
-        category: "webhook",
-        action: "webhook.duplicate_ignored",
-        message: "Duplicate webhook delivery ignored after concurrent insert.",
-        request,
-        contractorId: contractor.id,
-        plate,
-        deviceId: payload.device_id ?? null,
-        eventId: payload.event_id ?? null,
-        details: { gateEventId: existing?.id ?? null, ingestKey },
-      });
-      return Response.json({
-        ok: true,
-        duplicate: true,
-        gate_event_id: existing?.id ?? null,
-      });
-    }
-
     const msg = err instanceof Error ? err.message : "ingest failed";
     auditLog({
       level: "error",
@@ -206,7 +205,7 @@ export async function POST(request: Request) {
       action: "webhook.ingest_failed",
       message: `Webhook ingest failed: ${msg}`,
       request,
-      contractorId: contractor.id,
+      contractorId: contractor?.id,
       plate,
       deviceId: payload.device_id ?? null,
       eventId: payload.event_id ?? null,
