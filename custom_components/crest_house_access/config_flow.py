@@ -110,11 +110,8 @@ class CrestHouseAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return CrestHouseAccessOptionsFlow(config_entry)
 
 
-class CrestHouseAccessOptionsFlow(config_entries.OptionsFlow):
+class CrestHouseAccessOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
     """Handle Crest House Access options."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: Optional[Dict[str, Any]] = None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import logging
 from datetime import timedelta
 from typing import Any, Dict, Optional
@@ -64,12 +65,9 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
             return
 
         self._stream_task.cancel()
-        try:
-            await self._stream_task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._stream_task = None
+        with suppress(asyncio.CancelledError, asyncio.TimeoutError):
+            await asyncio.wait_for(self._stream_task, timeout=2)
+        self._stream_task = None
 
     async def _async_handle_snapshot(self, payload: Dict[str, Any]) -> None:
         """Apply a pushed snapshot to the coordinator."""
