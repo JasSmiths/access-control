@@ -109,8 +109,6 @@ export function SimulatePanel({
           {contractors.map((c) => {
             const enterKey = `${c.id}-enter`;
             const exitKey = `${c.id}-exit`;
-            const lastEnter = results[enterKey];
-            const lastExit = results[exitKey];
             const lastResult = results[exitKey] ?? results[enterKey];
             const busy = loading === enterKey || loading === exitKey;
 

@@ -10,6 +10,24 @@ import { auditLog } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
+function buildWebhookIngestKey(source: string | undefined, eventId: string | undefined) {
+  if (!eventId) return null;
+  return `${source ?? "unknown"}:${eventId}`;
+}
+
+function findWebhookEventByIngestKey(ingestKey: string) {
+  return getDb()
+    .prepare("SELECT id FROM gate_events WHERE ingest_key = ? LIMIT 1")
+    .get(ingestKey) as { id: number } | undefined;
+}
+
+function isDuplicateWebhookError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.includes("UNIQUE constraint failed: gate_events.ingest_key")
+  );
+}
+
 export async function POST(request: Request) {
   if (!checkWebhookSecret(request.headers.get("x-webhook-secret"))) {
     auditLog({
@@ -88,6 +106,24 @@ export async function POST(request: Request) {
   // Regular gate event
   const payload = result.payload;
   const plate = normalisePlate(payload.plate);
+  const ingestKey = buildWebhookIngestKey(payload.source, payload.event_id);
+  if (ingestKey) {
+    const existing = findWebhookEventByIngestKey(ingestKey);
+    if (existing) {
+      auditLog({
+        category: "webhook",
+        action: "webhook.duplicate_ignored",
+        message: "Duplicate webhook delivery ignored.",
+        request,
+        plate,
+        deviceId: payload.device_id ?? null,
+        eventId: payload.event_id ?? null,
+        details: { gateEventId: existing.id, ingestKey },
+      });
+      return Response.json({ ok: true, duplicate: true, gate_event_id: existing.id });
+    }
+  }
+
   const contractor = findActiveContractorByPlate(plate);
   if (!contractor) {
     // Silently ignore unknown/inactive plate per product decision.
@@ -125,6 +161,7 @@ export async function POST(request: Request) {
       eventType,
       occurredAt: new Date(payload.timestamp).toISOString(),
       source: payload.source,
+      ingestKey,
       contractor,
     });
     auditLog({
@@ -142,6 +179,26 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
+    if (ingestKey && isDuplicateWebhookError(err)) {
+      const existing = findWebhookEventByIngestKey(ingestKey);
+      auditLog({
+        category: "webhook",
+        action: "webhook.duplicate_ignored",
+        message: "Duplicate webhook delivery ignored after concurrent insert.",
+        request,
+        contractorId: contractor.id,
+        plate,
+        deviceId: payload.device_id ?? null,
+        eventId: payload.event_id ?? null,
+        details: { gateEventId: existing?.id ?? null, ingestKey },
+      });
+      return Response.json({
+        ok: true,
+        duplicate: true,
+        gate_event_id: existing?.id ?? null,
+      });
+    }
+
     const msg = err instanceof Error ? err.message : "ingest failed";
     auditLog({
       level: "error",

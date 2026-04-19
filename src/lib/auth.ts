@@ -52,7 +52,13 @@ export async function clearSession() {
 
 export async function getSession(): Promise<SessionPayload | null> {
   const jar = await cookies();
-  return verifyToken(jar.get(SESSION_COOKIE_NAME)?.value);
+  const token = await verifyToken(jar.get(SESSION_COOKIE_NAME)?.value);
+  if (!token) return null;
+
+  const admin = getActiveAdminById(token.userId);
+  if (!admin) return null;
+
+  return { userId: admin.id, username: admin.username };
 }
 
 export function adminExists(): boolean {
@@ -113,6 +119,14 @@ export function getAdminById(userId: number): AdminUser | undefined {
   return getDb()
     .prepare("SELECT id, username, password_hash, active FROM admin_users WHERE id = ?")
     .get(userId) as AdminUser | undefined;
+}
+
+export function getActiveAdminById(userId: number): Pick<AdminUser, "id" | "username" | "active"> | undefined {
+  return getDb()
+    .prepare(
+      "SELECT id, username, active FROM admin_users WHERE id = ? AND active = 1"
+    )
+    .get(userId) as Pick<AdminUser, "id" | "username" | "active"> | undefined;
 }
 
 export function updateAdminActive(userId: number, active: boolean) {

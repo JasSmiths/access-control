@@ -39,10 +39,6 @@ export function Sidebar({ username }: { username: string }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
-  useEffect(() => {
     if (!open) return;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -81,10 +77,10 @@ export function Sidebar({ username }: { username: string }) {
               {nav.map(({ href, label, Icon }) => {
                 const active = pathname === href || pathname.startsWith(href + "/");
                 return (
-                  <Link
-                    key={href}
-                    href={href}
-                    onClick={() => setOpen(false)}
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setOpen(false)}
                     className={clsx(
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
                       active
@@ -139,7 +135,6 @@ export function Sidebar({ username }: { username: string }) {
               <Link
                 key={href}
                 href={href}
-                onClick={() => setOpen(false)}
                 className={clsx(
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
                   active

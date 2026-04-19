@@ -3,7 +3,6 @@ import path from "node:path";
 import fs from "node:fs";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __crestHouseAccessDb: Database.Database | undefined;
 }
 

@@ -67,6 +67,7 @@ export function ingestEvent(args: {
   eventType: "enter" | "exit";
   occurredAt: string;
   source?: string;
+  ingestKey?: string | null;
   contractor?: ContractorRow;
 }): { eventId: number; emits: Array<{ name: string; data: unknown }> } {
   const db = getDb();
@@ -84,15 +85,16 @@ export function ingestEvent(args: {
   const run = db.transaction(() => {
     const insertEvent = db
       .prepare(
-        `INSERT INTO gate_events (contractor_id, plate_raw, event_type, occurred_at, source)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO gate_events (contractor_id, plate_raw, event_type, occurred_at, source, ingest_key)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
       .run(
         args.contractorId,
         args.plateRaw,
         args.eventType,
         args.occurredAt,
-        args.source ?? null
+        args.source ?? null,
+        args.ingestKey ?? null
       );
     const eventId = Number(insertEvent.lastInsertRowid);
 

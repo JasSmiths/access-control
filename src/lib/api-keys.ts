@@ -87,9 +87,13 @@ export function verifyApiKey(token: string) {
   const keyHash = hashKey(token);
   const row = getDb()
     .prepare(
-      `SELECT id, admin_user_id, key_prefix, revoked_at
+      `SELECT k.id, k.admin_user_id, k.key_prefix, k.revoked_at
          FROM api_keys
-        WHERE key_hash = ?
+         AS k
+         JOIN admin_users AS u
+           ON u.id = k.admin_user_id
+        WHERE k.key_hash = ?
+          AND u.active = 1
         LIMIT 1`
     )
     .get(keyHash) as

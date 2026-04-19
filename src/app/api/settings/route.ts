@@ -4,6 +4,13 @@ import { getSettings, updateSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
+function redactSettingAuditValue(key: string, value: unknown) {
+  if (key === "apprise_url") {
+    return value == null || value === "" ? null : "[redacted]";
+  }
+  return value;
+}
+
 export async function GET() {
   const session = await getSession();
   if (!session) return new Response("Unauthorized", { status: 401 });
@@ -46,8 +53,8 @@ export async function PATCH(request: Request) {
     details: {
       changed: changedKeys.map((key) => ({
         key,
-        before: (previous as Record<string, unknown>)[key],
-        after: (updated as Record<string, unknown>)[key],
+        before: redactSettingAuditValue(key, (previous as Record<string, unknown>)[key]),
+        after: redactSettingAuditValue(key, (updated as Record<string, unknown>)[key]),
       })),
     },
   });
