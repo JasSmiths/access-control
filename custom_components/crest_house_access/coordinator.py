@@ -136,6 +136,7 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
                 "contractor_id": event.get("contractor_id"),
                 "contractor_name": event.get("contractor_name"),
                 "contractor_role": event.get("contractor_role"),
+                "vehicle_reg": event.get("vehicle_reg"),
                 "event_type": event_type,
                 "occurred_at": event.get("occurred_at"),
                 "source": event.get("source"),

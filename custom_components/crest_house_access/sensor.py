@@ -55,6 +55,7 @@ SENSORS: Tuple[CrestHouseAccessSensorDescription, ...] = (
         value_fn=lambda data: int(data.get("on_site", 0)),
         attributes_fn=lambda data: {
             "generated_at": data.get("generated_at"),
+            "people": data.get("people", []),
             "open_sessions": data.get("open_sessions", []),
             "recent_events": data.get("recent_events", []),
         },
