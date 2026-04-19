@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, Dict, Optional, Set
 
 from homeassistant.config_entries import ConfigEntry
@@ -19,9 +19,6 @@ from .const import (
     EVENT_ACCESS_EVENT,
     EVENT_PERSON_ARRIVED,
     EVENT_PERSON_LEFT,
-    HEARTBEAT_BUCKET_HIGH_MS,
-    HEARTBEAT_BUCKET_HIGH_WATERMARK_MS,
-    HEARTBEAT_BUCKET_LOW_MS,
     STREAM_RECONNECT_DELAY_SECONDS,
 )
 
@@ -36,9 +33,6 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
         self._stream_task: Optional[asyncio.Task] = None
         self._seen_event_ids: Set[int] = set()
         self._seeded_recent_events = False
-        self._heartbeat_display_ms: Optional[int] = None
-        self._heartbeat_display_source: Optional[str] = None
-        self._heartbeat_display_updated_at: Optional[str] = None
         self.api = CrestHouseAccessApiClient(
             async_get_clientsession(hass),
             entry.data["base_url"],
@@ -62,7 +56,6 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
         try:
             payload = await self.api.async_get_status()
             await self._async_process_recent_events(payload)
-            await self._async_apply_heartbeat(payload, source="poll")
             return payload
         except CrestHouseAccessApiError as err:
             raise UpdateFailed(str(err) or "Failed to fetch status") from err
@@ -86,7 +79,6 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
     async def _async_handle_snapshot(self, payload: Dict[str, Any]) -> None:
         """Apply a pushed snapshot to the coordinator."""
         await self._async_process_recent_events(payload)
-        await self._async_apply_heartbeat(payload, source="stream")
         self.async_set_updated_data(payload)
 
     async def async_notify_gate_signal(
@@ -161,60 +153,3 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
             for event in recent_events
             if isinstance(event, dict) and isinstance(event.get("id"), int)
         }
-
-    async def _async_apply_heartbeat(
-        self, payload: Dict[str, Any], source: str
-    ) -> None:
-        """Measure snapshot age and report it back to the app."""
-        generated_at = payload.get("generated_at")
-        if not isinstance(generated_at, str):
-            return
-
-        try:
-            generated_at_dt = datetime.fromisoformat(
-                generated_at.replace("Z", "+00:00")
-            )
-        except ValueError:
-            return
-
-        if generated_at_dt.tzinfo is None:
-            generated_at_dt = generated_at_dt.replace(tzinfo=timezone.utc)
-
-        measured_at_dt = datetime.now(timezone.utc)
-        heartbeat_ms = max(
-            0,
-            int((measured_at_dt - generated_at_dt).total_seconds() * 1000),
-        )
-        measured_at = measured_at_dt.isoformat().replace("+00:00", "Z")
-
-        display_ms = self._bucket_heartbeat_ms(heartbeat_ms)
-        if (
-            self._heartbeat_display_ms != display_ms
-            or self._heartbeat_display_source != source
-        ):
-            self._heartbeat_display_ms = display_ms
-            self._heartbeat_display_source = source
-            self._heartbeat_display_updated_at = measured_at
-
-        payload["heartbeat_ms"] = self._heartbeat_display_ms
-        payload["heartbeat_source"] = self._heartbeat_display_source
-        payload["heartbeat_updated_at"] = self._heartbeat_display_updated_at
-
-        try:
-            await self.api.async_post_heartbeat(
-                source=source,
-                heartbeat_ms=heartbeat_ms,
-                snapshot_generated_at=generated_at,
-                measured_at=measured_at,
-            )
-        except CrestHouseAccessApiError as err:
-            _LOGGER.debug("Failed to report heartbeat: %s", err)
-
-    @staticmethod
-    def _bucket_heartbeat_ms(heartbeat_ms: int) -> int:
-        """Collapse precise heartbeat values into stable display buckets for HA."""
-        if heartbeat_ms < HEARTBEAT_BUCKET_HIGH_WATERMARK_MS:
-            bucket = HEARTBEAT_BUCKET_LOW_MS
-        else:
-            bucket = HEARTBEAT_BUCKET_HIGH_MS
-        return max(bucket, int(round(heartbeat_ms / bucket) * bucket))
