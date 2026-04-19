@@ -49,6 +49,15 @@
       },
       "last_event": {
         "name": "Last event"
+      },
+      "on_site_names": {
+        "name": "On-site names"
+      },
+      "last_arrived": {
+        "name": "Last arrived"
+      },
+      "last_left": {
+        "name": "Last left"
       }
     },
     "binary_sensor": {

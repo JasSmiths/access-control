@@ -10,7 +10,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
-from .entity import CrestHouseAccessEntity
+from .entity import (
+    CrestHouseAccessEntity,
+    get_last_event_by_type,
+    get_on_site_names,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -29,6 +33,15 @@ def recent_events_attributes(data: Dict[str, Any]) -> Dict[str, Any]:
         "generated_at": data.get("generated_at"),
         "latest_event": latest_event,
         "recent_events": recent_events,
+    }
+
+
+def last_person_attributes(data: Dict[str, Any], event_type: str) -> Dict[str, Any]:
+    event = get_last_event_by_type(data, event_type)
+    return {
+        "generated_at": data.get("generated_at"),
+        "event": event,
+        "recent_events": data.get("recent_events", []),
     }
 
 
@@ -67,6 +80,38 @@ SENSORS: Tuple[CrestHouseAccessSensorDescription, ...] = (
             else "none"
         ),
         attributes_fn=recent_events_attributes,
+    ),
+    CrestHouseAccessSensorDescription(
+        key="on_site_names",
+        translation_key="on_site_names",
+        icon="mdi:account-group",
+        value_fn=lambda data: ", ".join(get_on_site_names(data)) or "none",
+        attributes_fn=lambda data: {
+            "generated_at": data.get("generated_at"),
+            "names": get_on_site_names(data),
+            "count": len(get_on_site_names(data)),
+            "open_sessions": data.get("open_sessions", []),
+        },
+    ),
+    CrestHouseAccessSensorDescription(
+        key="last_arrived",
+        translation_key="last_arrived",
+        icon="mdi:login",
+        value_fn=lambda data: (
+            (get_last_event_by_type(data, "enter") or {}).get("contractor_name")
+            or "none"
+        ),
+        attributes_fn=lambda data: last_person_attributes(data, "enter"),
+    ),
+    CrestHouseAccessSensorDescription(
+        key="last_left",
+        translation_key="last_left",
+        icon="mdi:logout",
+        value_fn=lambda data: (
+            (get_last_event_by_type(data, "exit") or {}).get("contractor_name")
+            or "none"
+        ),
+        attributes_fn=lambda data: last_person_attributes(data, "exit"),
     ),
 )
 
