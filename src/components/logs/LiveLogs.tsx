@@ -74,6 +74,8 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
   const [deviceName, setDeviceName] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "err">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   const refreshLogs = useCallback(async (page = data.page) => {
     try {
@@ -171,6 +173,37 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
     }
   }
 
+  async function clearAllLogs() {
+    const ok = window.confirm("Clear all audit log entries?");
+    if (!ok) return;
+
+    setClearing(true);
+    setClearError(null);
+    try {
+      const res = await fetch("/api/logs", {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setClearError((await res.text()) || "Failed to clear logs");
+        setClearing(false);
+        return;
+      }
+
+      setSelectedLog(null);
+      setData((current) => ({
+        ...current,
+        rows: [],
+        count: 0,
+        page: 1,
+      }));
+      await refreshLogs(1);
+    } catch {
+      setClearError("Request failed");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -180,14 +213,27 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
             Live operational audit log for webhooks, auth, API calls, and session actions.
           </p>
         </div>
-        <Badge tone={connected ? "success" : "neutral"}>
-          {connected
-            ? latencyMs == null
-              ? "Live"
-              : `Live - ${latencyMs}ms`
-            : "Offline"}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="danger"
+            size="sm"
+            onClick={() => void clearAllLogs()}
+            disabled={clearing}
+          >
+            {clearing ? "Clearing…" : "Clear logs"}
+          </Button>
+          <Badge tone={connected ? "success" : "neutral"}>
+            {connected
+              ? latencyMs == null
+                ? "Live"
+                : `Live - ${latencyMs}ms`
+              : "Offline"}
+          </Badge>
+        </div>
       </div>
+
+      {clearError ? <p className="text-sm text-[var(--danger)]">{clearError}</p> : null}
 
       <Card>
         <CardHeader>

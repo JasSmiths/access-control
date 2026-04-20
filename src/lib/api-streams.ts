@@ -44,7 +44,9 @@ export function registerApiStream(request: Request, actor: string, path: string)
 }
 
 export function unregisterApiStream(id: string) {
+  const stream = getRegistry().get(id) ?? null;
   getRegistry().delete(id);
+  return stream;
 }
 
 export function listActiveApiStreams(): ActiveApiStream[] {

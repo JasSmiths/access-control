@@ -9,11 +9,12 @@ type ClientIpDetails = {
 const SIMPLE_IP_HEADERS = [
   "cf-connecting-ip",
   "true-client-ip",
-  "x-client-ip",
   "x-forwarded-for",
   "forwarded",
   "x-real-ip",
 ] as const;
+
+const FALLBACK_IP_HEADERS = ["x-client-ip"] as const;
 
 export function getClientIp(request: Request): string | null {
   return getClientIpDetails(request).ip;
@@ -22,7 +23,7 @@ export function getClientIp(request: Request): string | null {
 export function getClientIpDetails(request: Request): ClientIpDetails {
   let fallback: ClientIpDetails | null = null;
 
-  for (const header of SIMPLE_IP_HEADERS) {
+  for (const header of [...SIMPLE_IP_HEADERS, ...FALLBACK_IP_HEADERS]) {
     const raw = request.headers.get(header);
     if (!raw) continue;
     const chain = extractIpsFromHeader(header, raw);
@@ -35,7 +36,7 @@ export function getClientIpDetails(request: Request): ClientIpDetails {
     if (details.ip && !isContainerHopIp(details.ip) && !isLoopbackIp(details.ip)) {
       return details;
     }
-    if (!fallback) fallback = details;
+    if (!fallback || isPreferredFallback(details, fallback)) fallback = details;
   }
 
   return fallback ?? {
@@ -43,6 +44,19 @@ export function getClientIpDetails(request: Request): ClientIpDetails {
     source: null,
     chain: [],
   };
+}
+
+function isPreferredFallback(next: ClientIpDetails, current: ClientIpDetails): boolean {
+  const nextIsCustom = FALLBACK_IP_HEADERS.includes(
+    next.source as (typeof FALLBACK_IP_HEADERS)[number]
+  );
+  const currentIsCustom = FALLBACK_IP_HEADERS.includes(
+    current.source as (typeof FALLBACK_IP_HEADERS)[number]
+  );
+
+  if (currentIsCustom && !nextIsCustom) return true;
+  if (nextIsCustom && !currentIsCustom) return false;
+  return false;
 }
 
 export function getPathname(request: Request): string {

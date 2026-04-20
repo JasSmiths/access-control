@@ -15,7 +15,7 @@ export function formatHours(seconds: number | null | undefined): string {
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseKnownDate(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
     year: "numeric",
@@ -28,7 +28,7 @@ export function formatDateTime(iso: string | null | undefined): string {
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseKnownDate(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, {
     year: "numeric",
@@ -39,7 +39,7 @@ export function formatDate(iso: string | null | undefined): string {
 
 export function formatTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseKnownDate(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleTimeString(undefined, {
     hour: "2-digit",
@@ -49,4 +49,16 @@ export function formatTime(iso: string | null | undefined): string {
 
 export function isoDate(iso: string): string {
   return iso.slice(0, 10);
+}
+
+function parseKnownDate(raw: string | null | undefined): Date {
+  if (!raw) return new Date(Number.NaN);
+
+  // SQLite `datetime('now')` values are stored without a timezone marker,
+  // but they represent UTC. Normalize them so they match ISO timestamps.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+    return new Date(raw.replace(" ", "T") + "Z");
+  }
+
+  return new Date(raw);
 }

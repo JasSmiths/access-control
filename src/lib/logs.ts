@@ -82,3 +82,8 @@ export function upsertDeviceName(deviceId: string, name: string) {
     )
     .run(deviceId, name);
 }
+
+export function clearLogs(): number {
+  const result = getDb().prepare("DELETE FROM audit_logs").run();
+  return result.changes;
+}

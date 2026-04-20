@@ -76,6 +76,36 @@ export async function GET(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
+      const connectedAt = new Date();
+
+      const closeStream = (reason: string) => {
+        if (closed) return;
+        closed = true;
+        clearInterval(ping);
+        bus.off("evt", listener);
+        const activeStream = unregisterApiStream(streamId);
+        auditLog({
+          category: "api",
+          action: "api.stream_disconnected",
+          message: "API realtime stream disconnected.",
+          request,
+          path: "/api/v1/stream",
+          actor,
+          details: {
+            reason,
+            connected_at: activeStream?.connected_at ?? connectedAt.toISOString(),
+            duration_seconds: Math.max(
+              0,
+              Math.round((Date.now() - connectedAt.getTime()) / 1000)
+            ),
+          },
+        });
+        try {
+          controller.close();
+        } catch {
+          /* ignore */
+        }
+      };
 
       const send = (eventName: string, data: unknown) => {
         if (closed) return;
@@ -83,7 +113,7 @@ export async function GET(request: Request) {
           const chunk = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
           controller.enqueue(encoder.encode(chunk));
         } catch {
-          closed = true;
+          closeStream("write_failed");
         }
       };
 
@@ -118,21 +148,12 @@ export async function GET(request: Request) {
         try {
           controller.enqueue(encoder.encode(": ping\n\n"));
         } catch {
-          closed = true;
+          closeStream("ping_failed");
         }
       }, 25_000);
 
       const onAbort = () => {
-        if (closed) return;
-        closed = true;
-        clearInterval(ping);
-        bus.off("evt", listener);
-        unregisterApiStream(streamId);
-        try {
-          controller.close();
-        } catch {
-          /* ignore */
-        }
+        closeStream("client_aborted");
       };
 
       request.signal.addEventListener("abort", onAbort);
