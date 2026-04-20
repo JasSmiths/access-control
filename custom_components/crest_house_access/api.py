@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from json import JSONDecodeError, loads
+import socket
 from typing import Any, Awaitable, Callable, Dict, List
 from urllib.parse import urlparse
 
@@ -44,13 +45,21 @@ class CrestHouseAccessApiClient:
         self._base_url = normalize_base_url(base_url)
         self._api_key = api_key.strip()
         self._verify_ssl = verify_ssl
+        self._client_ip_hint = detect_outbound_ip(self._base_url)
+
+    def _auth_headers(self) -> Dict[str, str]:
+        """Build auth headers and include the integration's outbound IP when known."""
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        if self._client_ip_hint:
+            headers["X-Client-IP"] = self._client_ip_hint
+        return headers
 
     async def async_get_status(self) -> Dict[str, Any]:
         """Fetch the Home Assistant status payload."""
         try:
             async with self._session.get(
                 f"{self._base_url}/api/v1/status",
-                headers={"Authorization": f"Bearer {self._api_key}"},
+                headers=self._auth_headers(),
                 ssl=self._verify_ssl,
                 timeout=COORDINATOR_TIMEOUT_SECONDS,
             ) as response:
@@ -80,7 +89,7 @@ class CrestHouseAccessApiClient:
             async with self._session.get(
                 f"{self._base_url}/api/v1/stream",
                 headers={
-                    "Authorization": f"Bearer {self._api_key}",
+                    **self._auth_headers(),
                     "Accept": "text/event-stream",
                 },
                 ssl=self._verify_ssl,
@@ -138,7 +147,7 @@ class CrestHouseAccessApiClient:
         try:
             async with self._session.post(
                 f"{self._base_url}/api/v1/gate-signal",
-                headers={"Authorization": f"Bearer {self._api_key}"},
+                headers=self._auth_headers(),
                 json={
                     "entity_id": entity_id,
                     "state": state,
@@ -164,3 +173,35 @@ class CrestHouseAccessApiClient:
             raise CrestHouseAccessCannotConnect
 
         return payload
+
+
+def detect_outbound_ip(base_url: str) -> str | None:
+    """Resolve the local interface address used to reach the app."""
+    parsed = urlparse(base_url)
+    host = parsed.hostname
+    if not host:
+        return None
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    try:
+        candidates = socket.getaddrinfo(
+            host,
+            port,
+            type=socket.SOCK_DGRAM,
+        )
+    except OSError:
+        return None
+
+    for family, socktype, proto, _, sockaddr in candidates:
+        try:
+            with socket.socket(family, socktype, proto) as sock:
+                sock.connect(sockaddr)
+                local_ip = sock.getsockname()[0]
+        except OSError:
+            continue
+
+        if local_ip:
+            return str(local_ip)
+
+    return None

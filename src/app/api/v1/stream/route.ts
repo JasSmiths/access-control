@@ -1,3 +1,4 @@
+import { registerApiStream, unregisterApiStream } from "@/lib/api-streams";
 import { loadDashboard } from "@/lib/dashboard";
 import { verifyApiKey } from "@/lib/api-keys";
 import { auditLog } from "@/lib/audit";
@@ -60,6 +61,8 @@ export async function GET(request: Request) {
 
   const encoder = new TextEncoder();
   const bus = getBus();
+  const actor = `api_key:${key.key_prefix}`;
+  const streamId = registerApiStream(request, actor, "/api/v1/stream");
 
   auditLog({
     category: "api",
@@ -67,7 +70,7 @@ export async function GET(request: Request) {
     message: "API realtime stream connected.",
     request,
     path: "/api/v1/stream",
-    actor: `api_key:${key.key_prefix}`,
+    actor,
   });
 
   const stream = new ReadableStream<Uint8Array>({
@@ -95,7 +98,7 @@ export async function GET(request: Request) {
             message: "API realtime stream snapshot failed.",
             request,
             path: "/api/v1/stream",
-            actor: `api_key:${key.key_prefix}`,
+            actor,
             details: {
               error: error instanceof Error ? error.message : String(error),
             },
@@ -124,6 +127,7 @@ export async function GET(request: Request) {
         closed = true;
         clearInterval(ping);
         bus.off("evt", listener);
+        unregisterApiStream(streamId);
         try {
           controller.close();
         } catch {

@@ -28,6 +28,25 @@ type LogRow = {
   details_json: string | null;
 };
 
+type ActiveApiStream = {
+  id: string;
+  actor: string;
+  connected_at: string;
+  ip: string | null;
+  ip_source: string | null;
+  forwarded_chain: string[];
+  user_agent: string | null;
+  path: string;
+};
+
+type LogsPageData = {
+  rows: LogRow[];
+  count: number;
+  page: number;
+  pageSize: number;
+  streams: ActiveApiStream[];
+};
+
 type DetailItem = {
   label: string;
   value: string;
@@ -46,8 +65,8 @@ type ParsedDetails =
   | { kind: "items"; items: DetailItem[] }
   | { kind: "raw"; raw: string };
 
-export function LiveLogs({ initial }: { initial: LogRow[] }) {
-  const [rows, setRows] = useState<LogRow[]>(initial);
+export function LiveLogs({ initial }: { initial: LogsPageData }) {
+  const [data, setData] = useState<LogsPageData>(initial);
   const [connected, setConnected] = useState(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [selectedLog, setSelectedLog] = useState<LogRow | null>(null);
@@ -56,12 +75,23 @@ export function LiveLogs({ initial }: { initial: LogRow[] }) {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "err">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refreshLogs = useCallback(async (page = data.page) => {
     try {
-      const r = await fetch("/api/logs?limit=200", { cache: "no-store" });
+      const r = await fetch(`/api/logs?page=${page}&pageSize=${data.pageSize}`, { cache: "no-store" });
       if (!r.ok) return;
-      const payload = (await r.json()) as { rows: LogRow[] };
-      setRows(payload.rows);
+      const payload = (await r.json()) as Omit<LogsPageData, "streams">;
+      setData((current) => ({ ...current, ...payload }));
+    } catch {
+      // ignore
+    }
+  }, [data.page, data.pageSize]);
+
+  const refreshStreams = useCallback(async () => {
+    try {
+      const r = await fetch("/api/logs/streams", { cache: "no-store" });
+      if (!r.ok) return;
+      const payload = (await r.json()) as { streams: ActiveApiStream[] };
+      setData((current) => ({ ...current, streams: payload.streams }));
     } catch {
       // ignore
     }
@@ -82,22 +112,28 @@ export function LiveLogs({ initial }: { initial: LogRow[] }) {
     const es = new EventSource("/api/events/stream");
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
-    const onAny = () => refresh();
+    const onAny = () => refreshLogs();
     es.addEventListener("session.opened", onAny);
     es.addEventListener("session.closed", onAny);
     es.addEventListener("session.flagged", onAny);
     es.addEventListener("contractor.updated", onAny);
     es.addEventListener("log.created", onAny);
     return () => es.close();
-  }, [refresh]);
+  }, [refreshLogs]);
 
   useEffect(() => {
     void probeLatency();
-    const id = window.setInterval(() => void probeLatency(), 15000);
-    return () => window.clearInterval(id);
-  }, [probeLatency]);
+    void refreshStreams();
+    const latencyId = window.setInterval(() => void probeLatency(), 15000);
+    const streamsId = window.setInterval(() => void refreshStreams(), 15000);
+    return () => {
+      window.clearInterval(latencyId);
+      window.clearInterval(streamsId);
+    };
+  }, [probeLatency, refreshStreams]);
 
-  const hasRows = rows.length > 0;
+  const hasRows = data.rows.length > 0;
+  const totalPages = Math.max(1, Math.ceil(data.count / data.pageSize));
   const parsedDetails = useMemo(
     () => parseDetailsJson(selectedLog?.details_json ?? null),
     [selectedLog?.details_json]
@@ -128,7 +164,7 @@ export function LiveLogs({ initial }: { initial: LogRow[] }) {
       }
       setSaveState("idle");
       setEditingDevice(null);
-      await refresh();
+      await refreshLogs();
     } catch {
       setSaveState("err");
       setSaveError("Request failed");
@@ -155,65 +191,120 @@ export function LiveLogs({ initial }: { initial: LogRow[] }) {
 
       <Card>
         <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Currently Connected API Streams</CardTitle>
+            <Badge tone={data.streams.length > 0 ? "accent" : "neutral"}>
+              {data.streams.length} active
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardBody className="p-0">
+          {data.streams.length === 0 ? (
+            <div className="p-6 text-sm text-[var(--fg-muted)]">No active API streams.</div>
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Connected</TH>
+                  <TH>API Key</TH>
+                  <TH>Source IP</TH>
+                  <TH>Forwarded Via</TH>
+                  <TH>Client</TH>
+                </TR>
+              </THead>
+              <tbody>
+                {data.streams.map((stream) => (
+                  <TR key={stream.id}>
+                    <TD className="whitespace-nowrap">{formatDateTime(stream.connected_at)}</TD>
+                    <TD className="font-mono text-xs">{stream.actor}</TD>
+                    <TD>
+                      <div className="font-mono text-xs">{stream.ip ?? "—"}</div>
+                      <div className="text-xs text-[var(--fg-muted)]">{stream.ip_source ?? "—"}</div>
+                    </TD>
+                    <TD className="max-w-[18rem] truncate font-mono text-xs" title={formatForwardedChain(stream)}>
+                      {formatForwardedChain(stream)}
+                    </TD>
+                    <TD className="max-w-[18rem] truncate text-xs" title={stream.user_agent ?? stream.path}>
+                      {stream.user_agent ?? stream.path}
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Recent activity</CardTitle>
         </CardHeader>
         <CardBody className="p-0">
           {!hasRows ? (
             <div className="p-6 text-sm text-[var(--fg-muted)]">No logs yet.</div>
           ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>When</TH>
-                  <TH>Level</TH>
-                  <TH>Action</TH>
-                  <TH>Message</TH>
-                  <TH>Device</TH>
-                </TR>
-              </THead>
-              <tbody>
-                {rows.map((row) => (
-                  <TR
-                    key={row.id}
-                    onClick={() => setSelectedLog(row)}
-                    className="cursor-pointer"
-                  >
-                    <TD className="whitespace-nowrap">{formatDateTime(row.occurred_at)}</TD>
-                    <TD>
-                      <Badge
-                        tone={
-                          row.level === "error"
-                            ? "danger"
-                            : row.level === "warn"
-                              ? "warning"
-                              : "neutral"
-                        }
-                      >
-                        {row.level}
-                      </Badge>
-                    </TD>
-                    <TD className="font-mono text-xs">{row.action}</TD>
-                    <TD className="max-w-[26rem] truncate" title={row.message}>{row.message}</TD>
-                    <TD>
-                      {row.device_id ? (
-                        <button
-                          type="button"
-                          className="text-left text-xs hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEditDevice(row);
-                          }}
-                        >
-                          {row.device_name ? `${row.device_name} (${row.device_id})` : row.device_id}
-                        </button>
-                      ) : (
-                        "—"
-                      )}
-                    </TD>
+            <>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>When</TH>
+                    <TH>Level</TH>
+                    <TH>Action</TH>
+                    <TH>Message</TH>
+                    <TH>Device</TH>
                   </TR>
-                ))}
-              </tbody>
-            </Table>
+                </THead>
+                <tbody>
+                  {data.rows.map((row) => (
+                    <TR
+                      key={row.id}
+                      onClick={() => setSelectedLog(row)}
+                      className="cursor-pointer"
+                    >
+                      <TD className="whitespace-nowrap">{formatDateTime(row.occurred_at)}</TD>
+                      <TD>
+                        <Badge
+                          tone={
+                            row.level === "error"
+                              ? "danger"
+                              : row.level === "warn"
+                                ? "warning"
+                                : "neutral"
+                          }
+                        >
+                          {row.level}
+                        </Badge>
+                      </TD>
+                      <TD className="font-mono text-xs">{row.action}</TD>
+                      <TD className="max-w-[26rem] truncate" title={row.message}>{row.message}</TD>
+                      <TD>
+                        {row.device_id ? (
+                          <button
+                            type="button"
+                            className="text-left text-xs hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditDevice(row);
+                            }}
+                          >
+                            {row.device_name ? `${row.device_name} (${row.device_id})` : row.device_id}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </Table>
+              <Pagination
+                page={data.page}
+                total={totalPages}
+                count={data.count}
+                pageSize={data.pageSize}
+                onChange={(nextPage) => void refreshLogs(nextPage)}
+              />
+            </>
           )}
         </CardBody>
       </Card>
@@ -390,6 +481,57 @@ export function LiveLogs({ initial }: { initial: LogRow[] }) {
   );
 }
 
+function Pagination({
+  page,
+  total,
+  count,
+  pageSize,
+  onChange,
+}: {
+  page: number;
+  total: number;
+  count: number;
+  pageSize: number;
+  onChange: (next: number) => void;
+}) {
+  if (total <= 1) return null;
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, count);
+
+  return (
+    <div className="flex items-center justify-between border-t px-4 py-3">
+      <div className="text-xs text-[var(--fg-muted)]">
+        Showing {start}-{end} of {count}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="cursor-pointer hover:bg-[var(--accent)]/10 hover:text-[var(--accent)]"
+          onClick={() => onChange(page - 1)}
+          disabled={page <= 1}
+        >
+          Previous
+        </Button>
+        <span className="text-xs text-[var(--fg-muted)]">
+          Page {page} of {total}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="cursor-pointer hover:bg-[var(--accent)]/10 hover:text-[var(--accent)]"
+          onClick={() => onChange(page + 1)}
+          disabled={page >= total}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-4">
@@ -451,6 +593,10 @@ function parseDetailsJson(raw: string | null): ParsedDetails {
   } catch {
     return { kind: "raw", raw };
   }
+}
+
+function formatForwardedChain(stream: ActiveApiStream): string {
+  return stream.forwarded_chain.length > 0 ? stream.forwarded_chain.join(" -> ") : "—";
 }
 
 function firstString(...values: Array<unknown>): string | null {
