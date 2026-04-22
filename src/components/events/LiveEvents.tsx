@@ -8,7 +8,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ExpandModal } from "@/components/ui/ExpandModal";
 import { Table, THead, TR, TH, TD } from "@/components/ui/Table";
 import type { EventRow, EventsPageData, SessionListRow } from "@/lib/events-page";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { useRetryingEventSource } from "@/lib/useRetryingEventSource";
 
 const PAGE_SIZE = 10;
@@ -46,8 +46,11 @@ function formatElapsedWithDays(seconds: number): string {
   const days = Math.floor(s / 86400);
   const hours = Math.floor((s % 86400) / 3600);
   const minutes = Math.floor((s % 3600) / 60);
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  return formatDuration(s);
+  const remainingSeconds = s % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m ${remainingSeconds}s`;
+  if (hours > 0) return `${hours}h ${minutes}m ${remainingSeconds}s`;
+  if (minutes > 0) return `${minutes}m ${remainingSeconds}s`;
+  return `${remainingSeconds}s`;
 }
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -360,7 +363,7 @@ export function LiveEvents({ initial }: { initial: EventsPageData }) {
                     <TH>Vehicle</TH>
                     <TH>Started</TH>
                     <TH>Ended</TH>
-                    <TH>Duration</TH>
+                    <TH className="w-[16ch]">Duration</TH>
                     <TH>Status</TH>
                     <TH>Notes</TH>
                   </TR>
@@ -378,7 +381,7 @@ export function LiveEvents({ initial }: { initial: EventsPageData }) {
                       <TD className="font-medium">{s.contractor_name}</TD>
                       <TD>{formatDateTime(s.started_at)}</TD>
                       <TD>{s.ended_at ? formatDateTime(s.ended_at) : "—"}</TD>
-                      <TD>
+                      <TD className="w-[16ch] whitespace-nowrap tabular-nums">
                         {s.ended_at ? (
                           formatElapsedWithDays(s.duration_seconds ?? 0)
                         ) : (
