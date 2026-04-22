@@ -31,6 +31,7 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.entry = entry
         self._stream_task: Optional[asyncio.Task] = None
+        self._stream_healthy = False
         self._seen_event_ids: Set[int] = set()
         self._seeded_recent_events = False
         self.api = CrestHouseAccessApiClient(
@@ -54,6 +55,10 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
 
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
+            # Realtime snapshots are the primary data source.
+            # Keep coordinator polling as a fallback scheduler only.
+            if self._stream_healthy and self.data:
+                return self.data
             payload = await self.api.async_get_status()
             await self._async_process_recent_events(payload)
             return payload
@@ -78,6 +83,7 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
 
     async def _async_handle_snapshot(self, payload: Dict[str, Any]) -> None:
         """Apply a pushed snapshot to the coordinator."""
+        self._stream_healthy = True
         await self._async_process_recent_events(payload)
         self.async_set_updated_data(payload)
 
@@ -92,12 +98,21 @@ class CrestHouseAccessDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]
         while True:
             try:
                 await self.api.async_stream_snapshots(self._async_handle_snapshot)
+                self._stream_healthy = False
+                with suppress(UpdateFailed):
+                    await self.async_refresh()
             except CrestHouseAccessApiError as err:
+                self._stream_healthy = False
                 _LOGGER.warning("Realtime stream disconnected: %s", err)
+                with suppress(UpdateFailed):
+                    await self.async_refresh()
             except asyncio.CancelledError:
                 raise
             except Exception:  # pragma: no cover - defensive logging
+                self._stream_healthy = False
                 _LOGGER.exception("Unexpected realtime stream failure")
+                with suppress(UpdateFailed):
+                    await self.async_refresh()
 
             await asyncio.sleep(STREAM_RECONNECT_DELAY_SECONDS)
 
