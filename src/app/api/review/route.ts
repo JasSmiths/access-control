@@ -85,6 +85,7 @@ export async function PATCH(request: Request) {
     .get(sessionId) as { id: number; contractor_id: number; contractor_name: string } | undefined;
 
   auditLog({
+    level: "info",
     category: "review",
     action: "review.resolved",
     message: `Session ${sessionId} reviewed as ${body.reason}.`,

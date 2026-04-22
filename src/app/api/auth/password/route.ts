@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.password_change_unauthorized",
       message: "Password change rejected: no active session.",
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.password_change_invalid_json",
       message: "Password change failed: invalid JSON payload.",
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   };
   if (!current || !next || next.length < 8) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.password_change_invalid_input",
       message: "Password change failed: invalid input.",
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   const ok = await verifyPassword(current, admin.password_hash);
   if (!ok) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.password_change_failed",
       message: "Password change failed: current password incorrect.",
@@ -68,6 +68,7 @@ export async function POST(request: Request) {
   const hash = await hashPassword(next);
   updateAdminPassword(admin.id, hash);
   auditLog({
+    level: "info",
     category: "auth",
     action: "auth.password_change_success",
     message: "Password updated successfully.",

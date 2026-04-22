@@ -53,6 +53,7 @@ export async function POST(request: Request) {
       .prepare("SELECT * FROM contractors WHERE id = ?")
       .get(info.lastInsertRowid) as ContractorRow;
     auditLog({
+      level: "info",
       category: "contractors",
       action: "contractor.created",
       message: `Contractor ${row.name} (${row.vehicle_reg}) created.`,

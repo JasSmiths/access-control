@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Field, Input } from "@/components/ui/Input";
+import { Field, Input, Select } from "@/components/ui/Input";
 import { Copy, Bell, BellOff } from "lucide-react";
 import type { SettingsRow } from "@/lib/settings-shared";
 
@@ -310,6 +310,7 @@ export function WebhookCard({
 
 export function SiteSettingsCard({ initial }: { initial: SettingsRow }) {
   const [address, setAddress] = useState(initial.site_address ?? "");
+  const [logLevel, setLogLevel] = useState<SettingsRow["log_level"]>(initial.log_level ?? "debug");
   const [state, setState] = useState<"idle" | "saving" | "ok" | "err">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -320,7 +321,7 @@ export function SiteSettingsCard({ initial }: { initial: SettingsRow }) {
     const res = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ site_address: address || null }),
+      body: JSON.stringify({ site_address: address || null, log_level: logLevel }),
     });
     if (res.ok) {
       setState("ok");
@@ -346,6 +347,18 @@ export function SiteSettingsCard({ initial }: { initial: SettingsRow }) {
               onChange={(e) => setAddress(e.target.value)}
               placeholder="e.g. 42 Acacia Avenue, Springfield"
             />
+          </Field>
+          <Field
+            label="Log level"
+            hint="Errors: store only error logs. Debug: store all logs."
+          >
+            <Select
+              value={logLevel}
+              onChange={(e) => setLogLevel(e.target.value as SettingsRow["log_level"])}
+            >
+              <option value="errors">Errors</option>
+              <option value="debug">Debug</option>
+            </Select>
           </Field>
           {error ? (
             <div className="text-sm text-[var(--danger)]">{error}</div>

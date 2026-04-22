@@ -3,7 +3,7 @@ import { emit } from "./events-bus";
 import { getDb } from "./db";
 import { getClientIp, getPathname } from "./request";
 
-type AuditLevel = "info" | "warn" | "error";
+type AuditLevel = "debug" | "info" | "error";
 
 type AuditInput = {
   level?: AuditLevel;
@@ -22,8 +22,45 @@ type AuditInput = {
   details?: unknown;
 };
 
+const LEVEL_ORDER: Record<AuditLevel, number> = {
+  debug: 10,
+  info: 20,
+  error: 30,
+};
+
+function resolveMinAuditLevel(): AuditLevel {
+  const configured = getConfiguredAuditLogLevel();
+  return configured === "errors" ? "error" : "debug";
+}
+
+export function getConfiguredAuditLogLevel(): "errors" | "debug" {
+  try {
+    const row = getDb()
+      .prepare("SELECT log_level FROM settings WHERE id = 1")
+      .get() as { log_level?: unknown } | undefined;
+    const value = String(row?.log_level ?? "").trim().toLowerCase();
+    if (value === "errors" || value === "debug") return value;
+  } catch {
+    // Fallback for bootstrap or pre-migration states.
+  }
+
+  const raw = String(process.env.AUDIT_LOG_LEVEL ?? process.env.LOG_LEVEL ?? "debug")
+    .trim()
+    .toLowerCase();
+  if (raw === "errors" || raw === "error") return "errors";
+  return "debug";
+}
+
+function shouldPersistLevel(level: AuditLevel): boolean {
+  const minLevel = resolveMinAuditLevel();
+  return LEVEL_ORDER[level] >= LEVEL_ORDER[minLevel];
+}
+
 export function auditLog(input: AuditInput): number | null {
   try {
+    const level = input.level ?? "info";
+    if (!shouldPersistLevel(level)) return null;
+
     const request = input.request;
     const ip = input.ip ?? (request ? getClientIp(request) : null);
     const method = input.method ?? (request ? request.method : null);
@@ -39,7 +76,7 @@ export function auditLog(input: AuditInput): number | null {
           (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        input.level ?? "info",
+        level,
         input.category,
         input.action,
         input.message,

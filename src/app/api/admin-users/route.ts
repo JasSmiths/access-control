@@ -56,6 +56,7 @@ export async function POST(request: Request) {
   }
 
   auditLog({
+    level: "info",
     category: "auth",
     action: "auth.admin_user_created",
     message: `Admin user ${trimmed} created by ${session.username}.`,
@@ -66,4 +67,3 @@ export async function POST(request: Request) {
 
   return Response.json({ ok: true });
 }
-

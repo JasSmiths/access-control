@@ -21,6 +21,7 @@ export async function DELETE(
   if (!revoked) return new Response("API key not found", { status: 404 });
 
   auditLog({
+    level: "info",
     category: "api",
     action: "api.key_deleted",
     message: `API key ${keyId} deleted by ${session.username}.`,

@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   await clearSession();
   if (session) {
     auditLog({
+      level: "info",
       category: "auth",
       action: "auth.logout",
       message: `User ${session.username} logged out.`,

@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   const token = extractBearerToken(request);
   if (!token) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "api",
       action: "api.auth_failed",
       message: "API stream rejected: missing bearer token.",
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
   const key = verifyApiKey(token);
   if (!key) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "api",
       action: "api.auth_failed",
       message: "API stream rejected: invalid API key.",
@@ -65,6 +65,7 @@ export async function GET(request: Request) {
   const streamId = registerApiStream(request, actor, "/api/v1/stream");
 
   auditLog({
+    level: "info",
     category: "api",
     action: "api.stream_connected",
     message: "API realtime stream connected.",
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
         bus.off("evt", listener);
         const activeStream = unregisterApiStream(streamId);
         auditLog({
+          level: "info",
           category: "api",
           action: "api.stream_disconnected",
           message: "API realtime stream disconnected.",

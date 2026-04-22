@@ -17,6 +17,7 @@ export async function POST(request: Request) {
 
   const created = createApiKey(session.userId, session.username);
   auditLog({
+    level: "info",
     category: "api",
     action: "api.key_created",
     message: `API key created by ${session.username}.`,

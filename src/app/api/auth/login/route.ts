@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.login_invalid_json",
       message: "Login failed: invalid JSON payload.",
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   };
   if (!username || !password) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.login_missing_credentials",
       message: "Login failed: missing credentials.",
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   const admin = getAdminByUsername(username.trim());
   if (!admin) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.login_failed",
       message: `Login failed for username "${username}".`,
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   const ok = await verifyPassword(password, admin.password_hash);
   if (!ok || !admin.active) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.login_failed",
       message: `Login failed for username "${username}".`,
@@ -59,6 +59,7 @@ export async function POST(request: Request) {
   await issueSession(admin.id, admin.username);
   markAdminLogin(admin.id);
   auditLog({
+    level: "info",
     category: "auth",
     action: "auth.login_success",
     message: `Login succeeded for username "${admin.username}".`,

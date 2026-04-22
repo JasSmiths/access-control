@@ -26,6 +26,24 @@ type Result = {
   occurred_at?: string;
 };
 
+type WebhookSimResult = {
+  ok: boolean;
+  status?: number;
+  mode?: "single" | "misread_burst";
+  requested_plate?: string;
+  correct_plate_position?: number;
+  sequence?: Array<{
+    index: number;
+    plate: string;
+    event_id: string;
+    delay_ms: number;
+    status: number;
+    ok: boolean;
+  }>;
+  webhook_response?: unknown;
+  error?: string;
+};
+
 export function SimulatePanel({
   contractors,
   webhookTests,
@@ -39,6 +57,9 @@ export function SimulatePanel({
   const [customEvent, setCustomEvent] = useState<"enter" | "exit">("enter");
   const [customResult, setCustomResult] = useState<Result | null>(null);
   const [customLoading, setCustomLoading] = useState(false);
+  const [webhookPlate, setWebhookPlate] = useState("SVA673");
+  const [webhookLoadingMode, setWebhookLoadingMode] = useState<"single" | "misread_burst" | null>(null);
+  const [webhookResult, setWebhookResult] = useState<WebhookSimResult | null>(null);
 
   async function fire(plate: string, event: "enter" | "exit", key: string) {
     setLoading(key);
@@ -94,6 +115,51 @@ export function SimulatePanel({
       setCustomResult({ ok: false, error: String(err) });
     } finally {
       setCustomLoading(false);
+    }
+  }
+
+  async function fireWebhookSample(mode: "single" | "misread_burst") {
+    const plate = webhookPlate.trim().toUpperCase();
+    if (!plate) return;
+    setWebhookLoadingMode(mode);
+    setWebhookResult(null);
+    try {
+      const res = await fetch("/api/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, plate }),
+      });
+      const payload = (await res.json()) as {
+        ok?: boolean;
+        status?: number;
+        mode?: "single" | "misread_burst";
+        requested_plate?: string;
+        correct_plate_position?: number;
+        sequence?: Array<{
+          index: number;
+          plate: string;
+          event_id: string;
+          delay_ms: number;
+          status: number;
+          ok: boolean;
+        }>;
+        webhook_response?: unknown;
+        error?: string;
+      };
+      setWebhookResult({
+        ok: !!payload.ok,
+        status: payload.status ?? res.status,
+        mode: payload.mode,
+        requested_plate: payload.requested_plate,
+        correct_plate_position: payload.correct_plate_position,
+        sequence: payload.sequence,
+        webhook_response: payload.webhook_response,
+        error: payload.error,
+      });
+    } catch (err) {
+      setWebhookResult({ ok: false, error: String(err) });
+    } finally {
+      setWebhookLoadingMode(null);
     }
   }
 
@@ -198,6 +264,85 @@ export function SimulatePanel({
         </CardBody>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Webhook sample (Home Assistant LPR)</CardTitle>
+          <p className="text-xs text-[var(--fg-muted)] mt-1">
+            Sends UniFi/Home Assistant-style JSON payloads through{" "}
+            <code className="font-mono">/api/webhooks/gate</code> to validate full webhook capture and burst handling.
+          </p>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <Field label="Registration plate">
+            <Input
+              value={webhookPlate}
+              onChange={(e) => setWebhookPlate(e.target.value.toUpperCase())}
+              placeholder="SVA673"
+              className="font-mono"
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => void fireWebhookSample("single")}
+              disabled={webhookLoadingMode !== null || !webhookPlate.trim()}
+            >
+              <Wifi size={14} />
+              {webhookLoadingMode === "single" ? "Sending webhook…" : "Simulate LPR webhook"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void fireWebhookSample("misread_burst")}
+              disabled={webhookLoadingMode !== null || !webhookPlate.trim()}
+            >
+              <Zap size={14} />
+              {webhookLoadingMode === "misread_burst"
+                ? "Sending burst…"
+                : "Simulate Misread Burst (3s)"}
+            </Button>
+          </div>
+
+          {webhookResult ? (
+            webhookResult.ok ? (
+              <div className="rounded-lg bg-[var(--success)]/8 border border-[var(--success)]/30 px-3 py-2 text-xs space-y-1">
+                <div className="text-[var(--success)] font-medium">
+                  Webhook accepted ({webhookResult.status ?? 200})
+                </div>
+                {webhookResult.mode === "misread_burst" && webhookResult.sequence ? (
+                  <div className="space-y-1 text-[var(--fg-muted)]">
+                    <div>
+                      Correct plate{" "}
+                      <code className="font-mono">{webhookResult.requested_plate}</code> sent at webhook{" "}
+                      #{webhookResult.correct_plate_position ?? "?"}.
+                    </div>
+                    <div>
+                      Sequence:{" "}
+                      {webhookResult.sequence
+                        .map((item) => `${item.index}:${item.plate}`)
+                        .join(" • ")}
+                    </div>
+                  </div>
+                ) : null}
+                <pre className="rounded border bg-[var(--bg)] p-2 text-[11px] whitespace-pre-wrap break-all text-[var(--fg-muted)]">
+                  {formatJson(webhookResult.webhook_response)}
+                </pre>
+              </div>
+            ) : (
+              <div className="rounded-lg bg-[var(--danger)]/8 border border-[var(--danger)]/30 px-3 py-2 text-xs space-y-1">
+                <div className="text-[var(--danger)] font-medium">
+                  Webhook failed ({webhookResult.status ?? "error"})
+                </div>
+                {webhookResult.error ? <div>{webhookResult.error}</div> : null}
+                {webhookResult.webhook_response !== undefined ? (
+                  <pre className="rounded border bg-[var(--bg)] p-2 text-[11px] whitespace-pre-wrap break-all text-[var(--fg-muted)]">
+                    {formatJson(webhookResult.webhook_response)}
+                  </pre>
+                ) : null}
+              </div>
+            )
+          ) : null}
+        </CardBody>
+      </Card>
+
       {/* UniFi test event history */}
       <Card>
         <CardHeader>
@@ -276,4 +421,12 @@ function ResultBadge({ result }: { result: Result }) {
       )}
     </div>
   );
+}
+
+function formatJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }

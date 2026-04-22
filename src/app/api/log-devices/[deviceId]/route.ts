@@ -32,6 +32,7 @@ export async function PATCH(
 
   upsertDeviceName(deviceId, name);
   auditLog({
+    level: "info",
     category: "logs",
     action: "logs.device_named",
     message: `Device ${deviceId} named as "${name}".`,

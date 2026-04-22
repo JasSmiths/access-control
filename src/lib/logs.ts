@@ -4,7 +4,7 @@ import { getDb } from "./db";
 export type LogRow = {
   id: number;
   occurred_at: string;
-  level: "info" | "warn" | "error";
+  level: "debug" | "info" | "error";
   category: string;
   action: string;
   message: string;
@@ -25,6 +25,7 @@ export type LogsPageResult = {
   count: number;
   page: number;
   pageSize: number;
+  logSizeBytes: number;
 };
 
 export function loadLogs(limit = 200): LogRow[] {
@@ -63,11 +64,14 @@ export function loadLogsPage(page = 1, pageSize = 10): LogsPageResult {
     )
     .all(safePageSize, offset) as LogRow[];
 
+  const logSizeBytes = getAuditLogSizeBytes();
+
   return {
     rows,
     count,
     page: safePage,
     pageSize: safePageSize,
+    logSizeBytes,
   };
 }
 
@@ -86,4 +90,46 @@ export function upsertDeviceName(deviceId: string, name: string) {
 export function clearLogs(): number {
   const result = getDb().prepare("DELETE FROM audit_logs").run();
   return result.changes;
+}
+
+function getAuditLogSizeBytes(): number {
+  try {
+    const row = getDb()
+      .prepare(
+        `SELECT COALESCE(SUM(pgsize), 0) AS n
+         FROM dbstat
+         WHERE name IN (
+           'audit_logs',
+           'idx_audit_logs_occurred',
+           'idx_audit_logs_category',
+           'idx_audit_logs_device'
+         )`
+      )
+      .get() as { n: number };
+    if (Number.isFinite(row.n) && row.n >= 0) return row.n;
+  } catch {
+    // Fallback below when dbstat is unavailable.
+  }
+
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(
+          length(CAST(level AS BLOB)) +
+          length(CAST(category AS BLOB)) +
+          length(CAST(action AS BLOB)) +
+          length(CAST(message AS BLOB)) +
+          IFNULL(length(CAST(ip AS BLOB)), 0) +
+          IFNULL(length(CAST(method AS BLOB)), 0) +
+          IFNULL(length(CAST(path AS BLOB)), 0) +
+          IFNULL(length(CAST(actor AS BLOB)), 0) +
+          IFNULL(length(CAST(contractor_id AS BLOB)), 0) +
+          IFNULL(length(CAST(plate AS BLOB)), 0) +
+          IFNULL(length(CAST(device_id AS BLOB)), 0) +
+          IFNULL(length(CAST(event_id AS BLOB)), 0) +
+          IFNULL(length(CAST(details_json AS BLOB)), 0)
+        ), 0) AS n
+       FROM audit_logs`
+    )
+    .get() as { n: number };
+  return row.n;
 }

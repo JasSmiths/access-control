@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   if (adminExists()) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.setup_rejected",
       message: "Admin setup rejected because an admin already exists.",
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.setup_invalid_json",
       message: "Admin setup failed: invalid JSON payload.",
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   };
   if (!username || typeof username !== "string" || username.trim().length < 3) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.setup_invalid_username",
       message: "Admin setup failed: invalid username.",
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   }
   if (!password || typeof password !== "string" || password.length < 8) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "auth",
       action: "auth.setup_weak_password",
       message: "Admin setup failed: password too short.",
@@ -65,6 +65,7 @@ export async function POST(request: Request) {
     .get(username.trim()) as { id: number; username: string };
   await issueSession(row.id, row.username);
   auditLog({
+    level: "info",
     category: "auth",
     action: "auth.setup_success",
     message: `Admin setup completed for username "${row.username}".`,

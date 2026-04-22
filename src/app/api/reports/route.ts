@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     });
     const filename = `${REPORT_FILENAME_PREFIX}-${b.period}-${new Date().toISOString().slice(0, 10)}.pdf`;
     auditLog({
+      level: "info",
       category: "reports",
       action: "report.generated_downloaded",
       message: `Report generated and downloaded (${filename}).`,

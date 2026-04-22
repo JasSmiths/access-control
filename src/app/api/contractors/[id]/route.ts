@@ -91,6 +91,7 @@ export async function PATCH(
   }
   const row = getContractor(numericId)!;
   auditLog({
+    level: "info",
     category: "contractors",
     action: "contractor.updated",
     message: `Contractor ${row.name} updated (${changes.length} field${changes.length === 1 ? "" : "s"}).`,
@@ -115,6 +116,7 @@ export async function DELETE(
   if (!existing) return new Response("Not found", { status: 404 });
   getDb().prepare("DELETE FROM contractors WHERE id = ?").run(numericId);
   auditLog({
+    level: "info",
     category: "contractors",
     action: "contractor.deleted",
     message: `Contractor ${existing.name} (${existing.vehicle_reg}) deleted.`,

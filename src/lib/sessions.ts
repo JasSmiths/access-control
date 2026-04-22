@@ -123,7 +123,7 @@ export function ingestEvent(args: {
           },
         });
         auditLog({
-          level: "warn",
+          level: "debug",
           category: "review",
           action: "review.session_flagged",
           message: `Session ${openSession.id} flagged for review: double-enter without exit.`,
@@ -168,7 +168,7 @@ export function ingestEvent(args: {
           },
         });
         auditLog({
-          level: "warn",
+          level: "debug",
           category: "review",
           action: "review.session_flagged",
           message: `Session ${sessionId} flagged for review: ${accessNote}.`,
@@ -253,7 +253,7 @@ export function ingestEvent(args: {
             },
           });
           auditLog({
-            level: "warn",
+            level: "debug",
             category: "review",
             action: "review.session_flagged",
             message: `Session ${openSession.id} flagged for review: ${extraNote}.`,
@@ -293,7 +293,7 @@ export function ingestEvent(args: {
           },
         });
         auditLog({
-          level: "warn",
+          level: "debug",
           category: "review",
           action: "review.session_flagged",
           message: `Session ${Number(ins.lastInsertRowid)} flagged for review: exit without enter.`,

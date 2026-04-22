@@ -37,6 +37,7 @@ export async function PATCH(request: Request) {
 
   const normalized = updateAdminVehicleGroupOrder(session.userId, order);
   auditLog({
+    level: "info",
     category: "settings",
     action: "vehicles.order_updated",
     message: `Vehicle group order updated by ${session.username}.`,

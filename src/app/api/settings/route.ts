@@ -34,6 +34,13 @@ export async function PATCH(request: Request) {
 
   if ("site_address" in b) patch.site_address = b.site_address ? String(b.site_address) : null;
   if ("apprise_url" in b) patch.apprise_url = b.apprise_url ? String(b.apprise_url) : null;
+  if ("log_level" in b) {
+    const raw = String(b.log_level ?? "").trim().toLowerCase();
+    if (raw !== "errors" && raw !== "debug") {
+      return new Response("Invalid log_level", { status: 400 });
+    }
+    patch.log_level = raw;
+  }
   if ("notif_arrived" in b) patch.notif_arrived = b.notif_arrived ? 1 : 0;
   if ("notif_exited" in b) patch.notif_exited = b.notif_exited ? 1 : 0;
   if ("notif_unauthorized" in b) patch.notif_unauthorized = b.notif_unauthorized ? 1 : 0;
@@ -45,6 +52,7 @@ export async function PATCH(request: Request) {
   const updated = updateSettings(patch);
   const changedKeys = Object.keys(patch);
   auditLog({
+    level: "info",
     category: "settings",
     action: "settings.updated",
     message: `Settings updated (${changedKeys.length} field${changedKeys.length === 1 ? "" : "s"}).`,

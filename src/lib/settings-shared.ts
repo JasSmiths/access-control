@@ -7,6 +7,7 @@ export type SettingsRow = {
   id: number;
   site_address: string | null;
   apprise_url: string | null;
+  log_level: "errors" | "debug";
   notif_arrived: number;
   notif_exited: number;
   notif_unauthorized: number;

@@ -11,7 +11,7 @@ export async function POST(
   const session = await getSession();
   if (!session) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "sessions",
       action: "session.force_exit_unauthorized",
       message: "Force exit rejected: unauthorized.",
@@ -29,6 +29,7 @@ export async function POST(
   try {
     const result = forceExitOpenSession(sessionId);
     auditLog({
+      level: "info",
       category: "sessions",
       action: "session.force_exit",
       message: `Session ${sessionId} force exited by ${session.username}.`,
@@ -40,7 +41,7 @@ export async function POST(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Force exit failed";
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "sessions",
       action: "session.force_exit_failed",
       message: `Force exit failed for session ${sessionId}: ${message}`,

@@ -65,6 +65,7 @@ export async function PATCH(
   if (!changed) return new Response("No changes provided", { status: 400 });
 
   auditLog({
+    level: "info",
     category: "auth",
     action: "auth.admin_user_updated",
     message: `Admin user ${target.username} updated by ${session.username}.`,
@@ -79,4 +80,3 @@ export async function PATCH(
 
   return Response.json({ ok: true });
 }
-

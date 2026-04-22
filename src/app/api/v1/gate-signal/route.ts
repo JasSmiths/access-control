@@ -58,6 +58,7 @@ export async function POST(request: Request) {
   });
 
   auditLog({
+    level: "info",
     category: "api",
     action: "api.gate_signal_received",
     message: `Gate signal received from ${source}: ${state}.`,

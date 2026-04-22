@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const token = extractBearerToken(request);
   if (!token) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "api",
       action: "api.auth_failed",
       message: "API request rejected: missing bearer token.",
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const key = verifyApiKey(token);
   if (!key) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "api",
       action: "api.auth_failed",
       message: "API request rejected: invalid API key.",
@@ -43,6 +43,7 @@ export async function GET(request: Request) {
 
   const snapshot = loadDashboard();
   auditLog({
+    level: "debug",
     category: "api",
     action: "api.request",
     message: "API status endpoint called.",

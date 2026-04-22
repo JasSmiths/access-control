@@ -12,7 +12,7 @@ import { formatDateTime } from "@/lib/format";
 type LogRow = {
   id: number;
   occurred_at: string;
-  level: "info" | "warn" | "error";
+  level: "debug" | "info" | "error";
   category: string;
   action: string;
   message: string;
@@ -44,6 +44,7 @@ type LogsPageData = {
   count: number;
   page: number;
   pageSize: number;
+  logSizeBytes: number;
   streams: ActiveApiStream[];
 };
 
@@ -65,6 +66,11 @@ type ParsedDetails =
   | { kind: "items"; items: DetailItem[] }
   | { kind: "raw"; raw: string };
 
+type WebhookCapture = {
+  capturedAtLogLevel: string;
+  payload: unknown;
+};
+
 export function LiveLogs({ initial }: { initial: LogsPageData }) {
   const [data, setData] = useState<LogsPageData>(initial);
   const [connected, setConnected] = useState(false);
@@ -76,6 +82,7 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  const [showFullWebhook, setShowFullWebhook] = useState(false);
 
   const refreshLogs = useCallback(async (page = data.page) => {
     try {
@@ -140,6 +147,14 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
     () => parseDetailsJson(selectedLog?.details_json ?? null),
     [selectedLog?.details_json]
   );
+  const webhookCapture = useMemo(
+    () => extractWebhookCapture(selectedLog?.details_json ?? null),
+    [selectedLog?.details_json]
+  );
+
+  useEffect(() => {
+    setShowFullWebhook(false);
+  }, [selectedLog?.id]);
 
   function startEditDevice(row: LogRow) {
     if (!row.device_id) return;
@@ -195,6 +210,7 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
         rows: [],
         count: 0,
         page: 1,
+        logSizeBytes: 0,
       }));
       await refreshLogs(1);
     } catch {
@@ -283,7 +299,10 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent activity</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Recent activity</CardTitle>
+            <Badge tone="neutral">{formatBytes(data.logSizeBytes)}</Badge>
+          </div>
         </CardHeader>
         <CardBody className="p-0">
           {!hasRows ? (
@@ -313,8 +332,8 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
                           tone={
                             row.level === "error"
                               ? "danger"
-                              : row.level === "warn"
-                                ? "warning"
+                              : row.level === "debug"
+                                ? "accent"
                                 : "neutral"
                           }
                         >
@@ -368,8 +387,8 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
                 tone={
                   selectedLog.level === "error"
                     ? "danger"
-                    : selectedLog.level === "warn"
-                      ? "warning"
+                    : selectedLog.level === "debug"
+                      ? "accent"
                       : "neutral"
                 }
               >
@@ -380,6 +399,39 @@ export function LiveLogs({ initial }: { initial: LogsPageData }) {
             <DetailRow label="Action">
               <span className="font-mono text-xs">{selectedLog.action}</span>
             </DetailRow>
+            {isWebhookLog(selectedLog) ? (
+              <DetailRow label="Webhook">
+                {webhookCapture ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto p-0 text-[var(--accent)] hover:bg-transparent hover:underline"
+                    onClick={() => setShowFullWebhook((current) => !current)}
+                  >
+                    {showFullWebhook ? "Hide Full Webhook" : "Show Full Webhook"}
+                  </Button>
+                ) : (
+                  <span className="text-[var(--fg-muted)]">
+                    Log Level Wasnt Set to Debug when Ingested.
+                  </span>
+                )}
+              </DetailRow>
+            ) : null}
+            {isWebhookLog(selectedLog) && webhookCapture && showFullWebhook ? (
+              <DetailRow label="Webhook Payload">
+                <div className="rounded-lg border bg-[var(--bg)] p-3">
+                  <div className="mb-2 text-xs text-[var(--fg-muted)]">
+                    Captured when log level was set to{" "}
+                    <span className="font-mono">{webhookCapture.capturedAtLogLevel}</span>
+                    .
+                  </div>
+                  <pre className="max-h-[24rem] overflow-auto rounded border bg-[var(--bg-elevated)] p-3 text-xs whitespace-pre-wrap break-all text-[var(--fg)]">
+                    {formatWebhookPayload(webhookCapture.payload)}
+                  </pre>
+                </div>
+              </DetailRow>
+            ) : null}
             <DetailRow label="Message">{selectedLog.message}</DetailRow>
             <DetailRow label="IP">
               <span className="font-mono text-xs">{selectedLog.ip ?? "—"}</span>
@@ -590,9 +642,21 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 function parseDetailsJson(raw: string | null): ParsedDetails {
   if (!raw) return { kind: "empty" };
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    let parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const obj = parsed as Record<string, unknown>;
+      if ("_webhook_capture" in obj) {
+        const next = { ...obj };
+        delete next._webhook_capture;
+        parsed = next;
+      }
+    }
+
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>;
+      if (Object.keys(obj).length === 0) {
+        return { kind: "empty" };
+      }
       const source = firstString(obj.source, obj.via, obj.origin) ?? "—";
       const eventId =
         firstString(obj.event_id, obj.eventId, obj.id) ??
@@ -742,4 +806,51 @@ function formatDetailLabel(path: string): string {
       return `${alias ?? normalized}${index}`;
     })
     .join(" > ");
+}
+
+function extractWebhookCapture(raw: string | null): WebhookCapture | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const root = parsed as Record<string, unknown>;
+    const capture = root._webhook_capture;
+    if (!capture || typeof capture !== "object" || Array.isArray(capture)) return null;
+    const captureObj = capture as Record<string, unknown>;
+    const level = String(captureObj.captured_at_log_level ?? "").trim().toLowerCase();
+    if (level !== "debug") return null;
+    if (!("payload" in captureObj)) return null;
+    return {
+      capturedAtLogLevel: "debug",
+      payload: captureObj.payload,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatWebhookPayload(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function isWebhookLog(row: LogRow): boolean {
+  return row.category === "webhook";
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "Logs: 0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = value >= 100 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1);
+  return `Logs: ${rounded} ${units[unitIndex]}`;
 }

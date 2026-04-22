@@ -5,7 +5,7 @@ import {
 } from "@/lib/webhook";
 import { findActiveContractorByPlate } from "@/lib/sessions";
 import { getDb } from "@/lib/db";
-import { auditLog } from "@/lib/audit";
+import { auditLog, getConfiguredAuditLogLevel } from "@/lib/audit";
 import { resolveWebhookBurst } from "@/lib/webhook-bursts";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +15,30 @@ function buildWebhookIngestKey(source: string | undefined, eventId: string | und
   return `${source ?? "unknown"}:${eventId}`;
 }
 
+function withCapturedWebhookDetails(
+  details: unknown,
+  rawWebhook: unknown,
+  captureWebhook: boolean
+) {
+  if (!captureWebhook) return details;
+  const capture = {
+    captured_at_log_level: "debug" as const,
+    payload: rawWebhook,
+  };
+
+  if (details === undefined) {
+    return { _webhook_capture: capture };
+  }
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    return { ...(details as Record<string, unknown>), _webhook_capture: capture };
+  }
+  return { value: details, _webhook_capture: capture };
+}
+
 export async function POST(request: Request) {
   if (!checkWebhookSecret(request.headers.get("x-webhook-secret"))) {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "webhook",
       action: "webhook.auth_failed",
       message: "Webhook rejected due to invalid secret.",
@@ -31,7 +51,7 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "webhook",
       action: "webhook.invalid_json",
       message: "Webhook payload was invalid JSON.",
@@ -41,15 +61,16 @@ export async function POST(request: Request) {
   }
 
   const result = parseWebhookPayload(body);
+  const captureWebhook = getConfiguredAuditLogLevel() === "debug";
 
   if (result.type === "unknown") {
     auditLog({
-      level: "warn",
+      level: "debug",
       category: "webhook",
       action: "webhook.bad_payload",
       message: "Webhook payload did not match expected format.",
       request,
-      details: body,
+      details: withCapturedWebhookDetails(body, body, captureWebhook),
     });
     return new Response("Bad payload", { status: 400 });
   }
@@ -72,17 +93,19 @@ export async function POST(request: Request) {
         message: `Failed to store webhook test event: ${msg}`,
         request,
         deviceId: device,
+        details: withCapturedWebhookDetails(undefined, body, captureWebhook),
       });
       return new Response(msg, { status: 500 });
     }
     auditLog({
+      level: "info",
       category: "webhook",
       action: "webhook.test_received",
       message: "Webhook test event recorded.",
       request,
       deviceId: device,
       eventId: "testEventId",
-      details: { source, timestamp },
+      details: withCapturedWebhookDetails({ source, timestamp }, body, captureWebhook),
     });
     return Response.json(
       { ok: true, type: "test", message: "Test event recorded", device, timestamp },
@@ -105,6 +128,7 @@ export async function POST(request: Request) {
 
     if (resolved.duplicateIngestKey) {
       auditLog({
+        level: "debug",
         category: "webhook",
         action: "webhook.duplicate_ignored",
         message: "Duplicate webhook delivery ignored.",
@@ -113,12 +137,16 @@ export async function POST(request: Request) {
         plate,
         deviceId: payload.device_id ?? null,
         eventId: payload.event_id ?? null,
-        details: {
-          burstId: resolved.burstId,
-          candidateId: resolved.duplicateCandidateId,
-          gateEventId: resolved.finalized.gateEventId,
-          ingestKey,
-        },
+        details: withCapturedWebhookDetails(
+          {
+            burstId: resolved.burstId,
+            candidateId: resolved.duplicateCandidateId,
+            gateEventId: resolved.finalized.gateEventId,
+            ingestKey,
+          },
+          body,
+          captureWebhook
+        ),
       });
       return Response.json({
         ok: true,
@@ -129,6 +157,7 @@ export async function POST(request: Request) {
 
     if (resolved.finalized.status === "processed") {
       auditLog({
+        level: "info",
         category: "webhook",
         action: "webhook.event_ingested",
         message: contractor
@@ -139,13 +168,17 @@ export async function POST(request: Request) {
         plate,
         deviceId: payload.device_id ?? null,
         eventId: payload.event_id ?? null,
-        details: {
-          source: payload.source,
-          burstId: resolved.burstId,
-          gateEventId: resolved.finalized.gateEventId,
-          chosenPlate: resolved.finalized.chosenPlate,
-          eventType: resolved.finalized.eventType,
-        },
+        details: withCapturedWebhookDetails(
+          {
+            source: payload.source,
+            burstId: resolved.burstId,
+            gateEventId: resolved.finalized.gateEventId,
+            chosenPlate: resolved.finalized.chosenPlate,
+            eventType: resolved.finalized.eventType,
+          },
+          body,
+          captureWebhook
+        ),
       });
       return Response.json(
         {
@@ -161,6 +194,7 @@ export async function POST(request: Request) {
 
     if (!contractor) {
       auditLog({
+        level: "debug",
         category: "webhook",
         action: "webhook.plate_pending",
         message: `Unknown plate ${plate} parked pending burst resolution.`,
@@ -168,10 +202,14 @@ export async function POST(request: Request) {
         plate,
         deviceId: payload.device_id ?? null,
         eventId: payload.event_id ?? null,
-        details: {
-          source: payload.source,
-          burstId: resolved.burstId,
-        },
+        details: withCapturedWebhookDetails(
+          {
+            source: payload.source,
+            burstId: resolved.burstId,
+          },
+          body,
+          captureWebhook
+        ),
       });
       return Response.json(
         {
@@ -184,6 +222,7 @@ export async function POST(request: Request) {
     }
 
     auditLog({
+      level: "debug",
       category: "webhook",
       action: "webhook.burst_ignored",
       message: "Webhook burst ignored because no known plate was found in time.",
@@ -191,10 +230,14 @@ export async function POST(request: Request) {
       plate,
       deviceId: payload.device_id ?? null,
       eventId: payload.event_id ?? null,
-      details: {
-        source: payload.source,
-        burstId: resolved.burstId,
-      },
+      details: withCapturedWebhookDetails(
+        {
+          source: payload.source,
+          burstId: resolved.burstId,
+        },
+        body,
+        captureWebhook
+      ),
     });
     return new Response(null, { status: 204 });
   } catch (err) {
@@ -209,6 +252,7 @@ export async function POST(request: Request) {
       plate,
       deviceId: payload.device_id ?? null,
       eventId: payload.event_id ?? null,
+      details: withCapturedWebhookDetails(undefined, body, captureWebhook),
     });
     return new Response(msg, { status: 500 });
   }
